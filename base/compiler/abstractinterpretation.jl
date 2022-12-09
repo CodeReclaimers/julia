@@ -1106,7 +1106,7 @@ function const_prop_entry_heuristic(interp::AbstractInterpreter, result::MethodC
         else
             return true
         end
-    elseif isa(rt, PartialStruct) || isa(rt, InterConditional) || isa(rt, InterMustAlias)
+    elseif isa(rt, PartialStruct) || isa(rt, Interval) || isa(rt, InterConditional) || isa(rt, InterMustAlias)
         # could be improved to `Const` or a more precise wrapper
         return true
     elseif isa(rt, LimitedAccuracy)
@@ -1217,11 +1217,14 @@ function const_prop_function_heuristic(interp::AbstractInterpreter, @nospecializ
         # it is almost useless to inline the op when all the same type,
         # but highly worthwhile to inline promote of a constant
         length(argtypes) > 2 || return false
-        t1 = widenconst(argtypes[2])
+        at₂ = argtypes[2]
+        isa(at₂, Interval) && return true
+        t₂ = widenconst(at₂)
         for i in 3:length(argtypes)
-            at = argtypes[i]
-            ty = isvarargtype(at) ? unwraptv(at) : widenconst(at)
-            if ty !== t1
+            atᵢ = argtypes[i]
+            isa(atᵢ, Interval) && return true
+            tᵢ = isvarargtype(atᵢ) ? unwraptv(atᵢ) : widenconst(atᵢ)
+            if tᵢ !== t₂
                 return true
             end
         end
@@ -2674,6 +2677,17 @@ function bool_rt_to_conditional(@nospecialize(rt), slot_id::Int, info::Bestguess
         end
     end
     return rt
+end
+
+function widenreturn(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    return widenreturn_interval(𝕃ᵢ, rt, info)
+end
+function widenreturn_noslotwrapper(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    return widenreturn_interval(𝕃ᵢ, rt, info)
+end
+function widenreturn_interval(𝕃ᵢ::IntervalsLattice, @nospecialize(rt), info::BestguessInfo)
+    isa(rt, Interval) && return rt
+    return widenreturn(widenlattice(𝕃ᵢ), rt, info)
 end
 
 function widenreturn(𝕃ᵢ::PartialsLattice, @nospecialize(rt), info::BestguessInfo)

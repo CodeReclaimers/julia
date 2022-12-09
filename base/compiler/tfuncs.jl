@@ -141,18 +141,47 @@ function instanceof_tfunc(@nospecialize(t))
     end
     return Any, false, false, false
 end
-@nospecs bitcast_tfunc(𝕃::AbstractLattice, t, x) = instanceof_tfunc(t)[1]
+@nospecs bitcast_tfunc(𝕃::AbstractLattice, t, x) = bitcast_tfunc(widenlattice(𝕃), t, x)
+@nospecs bitcast_tfunc(𝕃::JLTypeLattice, t, x) = instanceof_tfunc(t)[1]
+@nospecs sext_int_tfunc(𝕃::AbstractLattice, t, x) = sext_int_tfunc(widenlattice(𝕃), t, x)
+@nospecs sext_int_tfunc(𝕃::JLTypeLattice, t, x) = instanceof_tfunc(t)[1]
+@nospecs zext_int_tfunc(𝕃::AbstractLattice, t, x) = zext_int_tfunc(widenlattice(𝕃), t, x)
+@nospecs zext_int_tfunc(𝕃::JLTypeLattice, t, x) = instanceof_tfunc(t)[1]
+@nospecs trunc_int_tfunc(𝕃::AbstractLattice, t, x) = trunc_int_tfunc(widenlattice(𝕃), t, x)
+@nospecs trunc_int_tfunc(𝕃::JLTypeLattice, t, x) = instanceof_tfunc(t)[1]
 @nospecs math_tfunc(𝕃::AbstractLattice, x) = widenconst(x)
 @nospecs math_tfunc(𝕃::AbstractLattice, x, y) = widenconst(x)
 @nospecs math_tfunc(𝕃::AbstractLattice, x, y, z) = widenconst(x)
 @nospecs fptoui_tfunc(𝕃::AbstractLattice, t, x) = bitcast_tfunc(𝕃, t, x)
 @nospecs fptosi_tfunc(𝕃::AbstractLattice, t, x) = bitcast_tfunc(𝕃, t, x)
 
+function sext_int_tfunc(@specialize(𝕃::IntervalsLattice), @nospecialize(a), @nospecialize(b))
+    return ext_int_interval(a, b)
+end
+function zext_int_tfunc(@specialize(𝕃::IntervalsLattice), @nospecialize(a), @nospecialize(b))
+    return ext_int_interval(a, b)
+end
+function ext_int_interval(@nospecialize(a), @nospecialize(b))
+    aty = instanceof_tfunc(a)[1]
+    if isconcretetype(aty)
+        bw = widenconst(b)
+        if isconcretetype(bw) && bw <: BitInteger
+            sizeof(aty) > sizeof(bw) || return Bottom
+            if aty <: SignedInt
+                return Interval(aty, aty(typemin(bw)), aty(typemax(bw)))
+            elseif aty <: Unsigned
+                return Interval(aty, zero(aty), aty(typemax(bw)))
+            end
+        end
+    end
+    return aty
+end
+
     ## conversion ##
 add_tfunc(bitcast, 2, 2, bitcast_tfunc, 1)
-add_tfunc(sext_int, 2, 2, bitcast_tfunc, 1)
-add_tfunc(zext_int, 2, 2, bitcast_tfunc, 1)
-add_tfunc(trunc_int, 2, 2, bitcast_tfunc, 1)
+add_tfunc(sext_int, 2, 2, sext_int_tfunc, 1)
+add_tfunc(zext_int, 2, 2, zext_int_tfunc, 1)
+add_tfunc(trunc_int, 2, 2, trunc_int_tfunc, 1)
 add_tfunc(fptoui, 2, 2, fptoui_tfunc, 1)
 add_tfunc(fptosi, 2, 2, fptosi_tfunc, 1)
 add_tfunc(uitofp, 2, 2, bitcast_tfunc, 1)
@@ -212,9 +241,43 @@ add_tfunc(rint_llvm, 1, 1, math_tfunc, 10)
 add_tfunc(sqrt_llvm, 1, 1, math_tfunc, 20)
 add_tfunc(sqrt_llvm_fast, 1, 1, math_tfunc, 20)
     ## same-type comparisons ##
-@nospecs cmp_tfunc(𝕃::AbstractLattice, x, y) = Bool
-add_tfunc(eq_int, 2, 2, cmp_tfunc, 1)
-add_tfunc(ne_int, 2, 2, cmp_tfunc, 1)
+@nospecs cmp_tfunc(𝕃::AbstractLattice, a, b) = cmp_tfunc(widenlattice(𝕃), a, b)
+@nospecs cmp_tfunc(𝕃::JLTypeLattice, a, b) = Bool
+@nospecs eq_int_tfunc(𝕃::AbstractLattice, a, b) = eq_int_tfunc(widenlattice(𝕃), a, b)
+@nospecs eq_int_tfunc(𝕃::JLTypeLattice, a, b) = Bool
+@nospecs function eq_int_tfunc(𝕃::IntervalsLattice, a, b)
+    if isa(a, Interval)
+        if isa(b, Interval)
+            hasintersection(a, b) || return Const(false)
+        elseif isa(b, Const)
+            hasintersection(a, b) || return Const(false)
+        end
+    elseif isa(b, Interval)
+        if isa(a, Const)
+            hasintersection(b, a) || return Const(false)
+        end
+    end
+    return Bool
+end
+@nospecs ne_int_tfunc(𝕃::AbstractLattice, a, b) = ne_int_tfunc(widenlattice(𝕃), a, b)
+@nospecs ne_int_tfunc(𝕃::JLTypeLattice, a, b) = Bool
+@nospecs function ne_int_tfunc(𝕃::IntervalsLattice, a, b)
+    if isa(a, Interval)
+        if isa(b, Interval)
+            hasintersection(a, b) || return Const(true)
+        elseif isa(b, Const)
+            hasintersection(a, b) || return Const(true)
+        end
+    elseif isa(b, Interval)
+        if isa(a, Const)
+            hasintersection(b, a) || return Const(true)
+        end
+    end
+    return Bool
+end
+
+add_tfunc(eq_int, 2, 2, eq_int_tfunc, 1)
+add_tfunc(ne_int, 2, 2, ne_int_tfunc, 1)
 add_tfunc(slt_int, 2, 2, cmp_tfunc, 1)
 add_tfunc(ult_int, 2, 2, cmp_tfunc, 1)
 add_tfunc(sle_int, 2, 2, cmp_tfunc, 1)
@@ -291,6 +354,20 @@ end
             x.val === false && return Conditional(y.slot, y.elsetype, y.thentype)
             x.val === true && return y
             return Const(false)
+        end
+    end
+    return egal_tfunc(widenlattice(𝕃), x, y)
+end
+@nospecs function egal_tfunc(𝕃::IntervalsLattice, x, y)
+    if isa(x, Interval)
+        if isa(y, Interval)
+            hasintersection(x, y) || return Const(false)
+        elseif isa(y, Const)
+            hasintersection(x, y) || return Const(false)
+        end
+    elseif isa(y, Interval)
+        if isa(x, Const)
+            hasintersection(y, x) || return Const(false)
         end
     end
     return egal_tfunc(widenlattice(𝕃), x, y)
@@ -1049,8 +1126,11 @@ end
 end
 
 @nospecs function _getfield_tfunc(𝕃::AnyMustAliasesLattice, s00, name, setfield::Bool)
-    s00 = widenmustalias(s00)
-    return _getfield_tfunc(widenlattice(𝕃), s00, name, setfield)
+    return _getfield_tfunc(widenlattice(𝕃), widenmustalias(s00), name, setfield)
+end
+
+@nospecs function _getfield_tfunc(𝕃::IntervalsLattice, s00, name, setfield::Bool)
+    return _getfield_tfunc(widenlattice(𝕃), wideninterval(s00), name, setfield)
 end
 
 @nospecs function _getfield_tfunc(𝕃::PartialsLattice, s00, name, setfield::Bool)
@@ -1246,7 +1326,7 @@ end
 end
 @nospecs function setfield!_tfunc(𝕃::AbstractLattice, o, f, v)
     mutability_errorcheck(o) || return Bottom
-    ft = _getfield_tfunc(fallback_lattice, o, f, true)
+    ft = _getfield_tfunc(𝕃, o, f, true)
     ft === Bottom && return Bottom
     hasintersect(widenconst(v), widenconst(ft)) || return Bottom
     return v
