@@ -4685,3 +4685,15 @@ end |> only === Tuple{}
     nt = T(())
     keys(nt)
 end |> only === Tuple{}
+
+let # jl_widen_core_extended_info
+    for (extended, widened) = [(Core.Const(42), Int),
+                               (Core.Const(Int), Type{Int}),
+                               (Core.Const(Vector), Type{Vector}),
+                               (Core.PartialStruct(Some{Any}, Any["julia"]), Some{Any}),
+                               (Core.InterConditional(2, Int, Nothing), Bool)]
+        @test @ccall(jl_widen_core_extended_info(extended::Any)::Any) ===
+              Core.Compiler.widenconst(extended) ===
+              widened
+    end
+end
