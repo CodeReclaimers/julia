@@ -4133,6 +4133,26 @@ primitive type UInt24ish 24 end
 f34288(x) = Core.Intrinsics.checked_sdiv_int(x, Core.Intrinsics.trunc_int(UInt24ish, 0))
 @test Base.return_types(f34288, (UInt24ish,)) == Any[UInt24ish]
 
+# intrinsics error checks
+@test Base.return_types() do
+    Core.Intrinsics.bitcast(Int64, Int32(1))
+end |> only === Union{}
+@test Base.return_types() do
+    Core.Intrinsics.bitcast(String, Int32(1))
+end |> only === Union{}
+@test Base.return_types() do
+    Core.Intrinsics.sext_int(Int64, Int32(1))
+end |> only === Int64
+@test Base.return_types() do
+    Core.Intrinsics.sext_int(String, Int32(1))
+end |> only === Union{}
+@test Base.return_types((Int32,Int64)) do x, y
+    Core.Intrinsics.neg_int(x, y)
+end |> only === Union{}
+@test Base.return_types((Float32,Float64)) do x, y
+    Core.Intrinsics.neg_float(x, y)
+end |> only === Union{}
+
 # Inference of PhiNode showing up in lowered AST
 function f_convert_me_to_ir(b, x)
     a = b ? sin(x) : cos(x)
